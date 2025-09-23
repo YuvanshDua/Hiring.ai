@@ -1,0 +1,1300 @@
+# AI Hiring Platform - Complete Django Backend
+
+## Project Structure
+```
+ai_hiring_platform/
+├── manage.py
+├── requirements.txt
+├── .env
+├── ai_hiring/
+│   ├── __init__.py
+│   ├── settings.py
+│   ├── urls.py
+│   ├── wsgi.py
+│   └── asgi.py
+├── apps/
+│   ├── __init__.py
+│   ├── authentication/
+│   ├── users/
+│   ├── jobs/
+│   ├── applications/
+│   ├── ats/
+│   ├── interviews/
+│   ├── notifications/
+│   └── analytics/
+└── utils/
+    ├── __init__.py
+    ├── permissions.py
+    ├── email.py
+    └── ai_utils.py
+```
+
+## 2. Settings Configuration (ai_hiring/settings.py)
+```python
+import os
+from pathlib import Path
+from datetime import timedelta
+from decouple import config
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+SECRET_KEY = config('SECRET_KEY', default='your-secret-key-here')
+DEBUG = config('DEBUG', default=False, cast=bool)
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1').split(',')
+
+# Application definition
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+    
+    # Third party
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'corsheaders',
+    'django_filters',
+    'django_celery_beat',
+    'storages',
+    'drf_yasg',
+    
+    # Local apps
+    'apps.authentication',
+    'apps.users',
+    'apps.jobs',
+    'apps.applications',
+    'apps.ats',
+    'apps.interviews',
+    'apps.notifications',
+    'apps.analytics',
+]
+
+MIDDLEWARE = [
+    'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
+
+ROOT_URLCONF = 'ai_hiring.urls'
+
+# Database
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('DB_NAME', default='ai_hiring_db'),
+        'USER': config('DB_USER', default='postgres'),
+        'PASSWORD': config('DB_PASSWORD'),
+        'HOST': config('DB_HOST', default='localhost'),
+        'PORT': config('DB_PORT', default='5432'),
+    }
+}
+
+# JWT Configuration
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
+# REST Framework
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ],
+}
+
+# Celery Configuration
+CELERY_BROKER_URL = config('REDIS_URL', default='redis://localhost:6379/0')
+CELERY_RESULT_BACKEND = config('REDIS_URL', default='redis://localhost:6379/0')
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+
+# Email Configuration
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
+EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = config('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL')
+
+# CORS Settings
+CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='http://localhost:3000').split(',')
+
+# File Storage
+AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
+AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY', default='')
+AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME', default='')
+AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default='us-east-1')
+AWS_S3_FILE_OVERWRITE = False
+AWS_DEFAULT_ACL = None
+
+# AI Configuration
+OPENAI_API_KEY = config('OPENAI_API_KEY', default='')
+```
+
+## 3. User & Authentication Models (apps/users/models.py)
+```python
+from django.contrib.auth.models import AbstractUser
+from django.db import models
+import uuid
+
+class User(AbstractUser):
+    ROLE_CHOICES = [
+        ('admin', 'Admin'),
+        ('recruiter', 'Recruiter'),
+        ('hiring_manager', 'Hiring Manager'),
+        ('interviewer', 'Interviewer'),
+        ('candidate', 'Candidate'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    email = models.EmailField(unique=True)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='candidate')
+    department = models.CharField(max_length=100, blank=True)
+    phone = models.CharField(max_length=20, blank=True)
+    is_verified = models.BooleanField(default=False)
+    verification_token = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ['username', 'first_name', 'last_name']
+    
+    class Meta:
+        db_table = 'users'
+        indexes = [
+            models.Index(fields=['email']),
+            models.Index(fields=['role']),
+        ]
+
+class UserProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    bio = models.TextField(blank=True)
+    resume = models.FileField(upload_to='resumes/', blank=True, null=True)
+    linkedin_url = models.URLField(blank=True)
+    github_url = models.URLField(blank=True)
+    portfolio_url = models.URLField(blank=True)
+    skills = models.JSONField(default=list)
+    experience_years = models.IntegerField(default=0)
+    education = models.JSONField(default=list)
+    certifications = models.JSONField(default=list)
+    preferred_locations = models.JSONField(default=list)
+    expected_salary = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    notice_period_days = models.IntegerField(default=0)
+    
+    class Meta:
+        db_table = 'user_profiles'
+```
+
+## 4. Jobs Models (apps/jobs/models.py)
+```python
+from django.db import models
+from django.contrib.auth import get_user_model
+import uuid
+
+User = get_user_model()
+
+class Department(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True)
+    
+    class Meta:
+        db_table = 'departments'
+
+class Job(models.Model):
+    STATUS_CHOICES = [
+        ('draft', 'Draft'),
+        ('active', 'Active'),
+        ('paused', 'Paused'),
+        ('closed', 'Closed'),
+    ]
+    
+    JOB_TYPE_CHOICES = [
+        ('full_time', 'Full Time'),
+        ('part_time', 'Part Time'),
+        ('contract', 'Contract'),
+        ('internship', 'Internship'),
+        ('remote', 'Remote'),
+    ]
+    
+    EXPERIENCE_LEVEL_CHOICES = [
+        ('entry', 'Entry Level'),
+        ('junior', 'Junior'),
+        ('mid', 'Mid Level'),
+        ('senior', 'Senior'),
+        ('lead', 'Lead'),
+        ('executive', 'Executive'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    title = models.CharField(max_length=200)
+    department = models.ForeignKey(Department, on_delete=models.SET_NULL, null=True)
+    description = models.TextField()
+    requirements = models.JSONField(default=list)
+    responsibilities = models.JSONField(default=list)
+    skills_required = models.JSONField(default=list)
+    skills_preferred = models.JSONField(default=list)
+    job_type = models.CharField(max_length=20, choices=JOB_TYPE_CHOICES)
+    experience_level = models.CharField(max_length=20, choices=EXPERIENCE_LEVEL_CHOICES)
+    experience_min_years = models.IntegerField(default=0)
+    experience_max_years = models.IntegerField(null=True, blank=True)
+    salary_min = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    salary_max = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    location = models.CharField(max_length=200)
+    is_remote = models.BooleanField(default=False)
+    openings = models.IntegerField(default=1)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='jobs_created')
+    hiring_manager = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='jobs_managed')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+    deadline = models.DateTimeField(null=True, blank=True)
+    
+    # ATS Configuration
+    auto_reject_threshold = models.IntegerField(default=40)
+    auto_shortlist_threshold = models.IntegerField(default=70)
+    screening_questions = models.JSONField(default=list)
+    
+    class Meta:
+        db_table = 'jobs'
+        indexes = [
+            models.Index(fields=['status', 'created_at']),
+            models.Index(fields=['department', 'status']),
+        ]
+```
+
+## 5. Application Models (apps/applications/models.py)
+```python
+from django.db import models
+from django.contrib.auth import get_user_model
+import uuid
+
+User = get_user_model()
+
+class Application(models.Model):
+    STATUS_CHOICES = [
+        ('draft', 'Draft'),
+        ('submitted', 'Submitted'),
+        ('under_review', 'Under Review'),
+        ('shortlisted', 'Shortlisted'),
+        ('interview_scheduled', 'Interview Scheduled'),
+        ('interviewed', 'Interviewed'),
+        ('offer_extended', 'Offer Extended'),
+        ('offer_accepted', 'Offer Accepted'),
+        ('offer_declined', 'Offer Declined'),
+        ('rejected', 'Rejected'),
+        ('withdrawn', 'Withdrawn'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    job = models.ForeignKey('jobs.Job', on_delete=models.CASCADE, related_name='applications')
+    candidate = models.ForeignKey(User, on_delete=models.CASCADE, related_name='applications')
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='draft')
+    
+    # Application Data
+    resume = models.FileField(upload_to='applications/resumes/')
+    cover_letter = models.TextField(blank=True)
+    portfolio_links = models.JSONField(default=list)
+    answers_to_questions = models.JSONField(default=dict)
+    
+    # ATS Scoring
+    ats_score = models.FloatField(null=True, blank=True)
+    skill_match_score = models.FloatField(null=True, blank=True)
+    experience_match_score = models.FloatField(null=True, blank=True)
+    education_match_score = models.FloatField(null=True, blank=True)
+    keyword_match_score = models.FloatField(null=True, blank=True)
+    ats_feedback = models.JSONField(default=dict)
+    
+    # Tracking
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='applications_reviewed')
+    rejection_reason = models.TextField(blank=True)
+    notes = models.TextField(blank=True)
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'applications'
+        unique_together = ['job', 'candidate']
+        indexes = [
+            models.Index(fields=['job', 'status']),
+            models.Index(fields=['candidate', 'status']),
+            models.Index(fields=['ats_score']),
+        ]
+
+class ApplicationStatusHistory(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    application = models.ForeignKey(Application, on_delete=models.CASCADE, related_name='status_history')
+    from_status = models.CharField(max_length=30)
+    to_status = models.CharField(max_length=30)
+    changed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    reason = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'application_status_history'
+        ordering = ['-created_at']
+```
+
+## 6. ATS Service (apps/ats/services.py)
+```python
+import re
+import json
+from typing import Dict, List, Any
+import PyPDF2
+import docx
+import nltk
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import spacy
+import openai
+from django.conf import settings
+
+nltk.download('punkt')
+nltk.download('stopwords')
+nlp = spacy.load('en_core_web_sm')
+
+class ATSService:
+    def __init__(self):
+        self.openai_client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+        self.tfidf = TfidfVectorizer(stop_words='english')
+    
+    def extract_text_from_resume(self, resume_file) -> str:
+        """Extract text from PDF or DOCX resume"""
+        text = ""
+        
+        if resume_file.name.endswith('.pdf'):
+            pdf_reader = PyPDF2.PdfReader(resume_file)
+            for page in pdf_reader.pages:
+                text += page.extract_text()
+        
+        elif resume_file.name.endswith('.docx'):
+            doc = docx.Document(resume_file)
+            for paragraph in doc.paragraphs:
+                text += paragraph.text + '\n'
+        
+        else:
+            text = resume_file.read().decode('utf-8', errors='ignore')
+        
+        return text
+    
+    def extract_resume_entities(self, resume_text: str) -> Dict[str, Any]:
+        """Extract entities from resume using NLP"""
+        doc = nlp(resume_text)
+        
+        entities = {
+            'skills': [],
+            'education': [],
+            'experience': [],
+            'certifications': [],
+            'contact': {}
+        }
+        
+        # Extract email
+        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+        emails = re.findall(email_pattern, resume_text)
+        if emails:
+            entities['contact']['email'] = emails[0]
+        
+        # Extract phone
+        phone_pattern = r'[\+\d]?[\d\s\(\)\-]{10,}'
+        phones = re.findall(phone_pattern, resume_text)
+        if phones:
+            entities['contact']['phone'] = phones[0].strip()
+        
+        # Extract skills using keyword matching
+        skill_keywords = self._get_skill_keywords()
+        for skill in skill_keywords:
+            if skill.lower() in resume_text.lower():
+                entities['skills'].append(skill)
+        
+        # Use OpenAI for better extraction
+        if settings.OPENAI_API_KEY:
+            entities = self._extract_with_ai(resume_text, entities)
+        
+        return entities
+    
+    def calculate_ats_score(self, application, job) -> Dict[str, Any]:
+        """Calculate comprehensive ATS score"""
+        resume_text = self.extract_text_from_resume(application.resume)
+        resume_entities = self.extract_resume_entities(resume_text)
+        
+        scores = {
+            'skill_match': self._calculate_skill_match(resume_entities['skills'], job.skills_required, job.skills_preferred),
+            'experience_match': self._calculate_experience_match(resume_text, job),
+            'education_match': self._calculate_education_match(resume_entities['education'], job.requirements),
+            'keyword_match': self._calculate_keyword_match(resume_text, job)
+        }
+        
+        # Calculate weighted average
+        weights = {
+            'skill_match': 0.35,
+            'experience_match': 0.30,
+            'education_match': 0.20,
+            'keyword_match': 0.15
+        }
+        
+        total_score = sum(scores[key] * weights[key] for key in scores)
+        
+        # Generate feedback
+        feedback = self._generate_feedback(scores, resume_entities, job)
+        
+        return {
+            'total_score': round(total_score, 2),
+            'scores': scores,
+            'feedback': feedback,
+            'entities': resume_entities
+        }
+    
+    def _calculate_skill_match(self, candidate_skills: List[str], required_skills: List[str], preferred_skills: List[str]) -> float:
+        """Calculate skill match score"""
+        if not required_skills:
+            return 100.0
+        
+        candidate_skills_lower = [s.lower() for s in candidate_skills]
+        required_matched = sum(1 for skill in required_skills if skill.lower() in candidate_skills_lower)
+        preferred_matched = sum(1 for skill in preferred_skills if skill.lower() in candidate_skills_lower)
+        
+        required_score = (required_matched / len(required_skills)) * 70 if required_skills else 0
+        preferred_score = (preferred_matched / len(preferred_skills)) * 30 if preferred_skills else 30
+        
+        return min(required_score + preferred_score, 100)
+    
+    def _calculate_experience_match(self, resume_text: str, job) -> float:
+        """Calculate experience match score"""
+        # Extract years of experience from resume
+        years_pattern = r'(\d+)\+?\s*years?\s*(?:of\s*)?experience'
+        matches = re.findall(years_pattern, resume_text.lower())
+        
+        if matches:
+            candidate_years = max(int(m) for m in matches)
+        else:
+            return 50.0  # Default score if experience not found
+        
+        min_years = job.experience_min_years
+        max_years = job.experience_max_years or min_years + 5
+        
+        if candidate_years < min_years:
+            return max(0, 100 - (min_years - candidate_years) * 20)
+        elif candidate_years > max_years:
+            return max(60, 100 - (candidate_years - max_years) * 10)
+        else:
+            return 100.0
+    
+    def _calculate_keyword_match(self, resume_text: str, job) -> float:
+        """Calculate keyword match using TF-IDF"""
+        job_text = f"{job.title} {job.description} {' '.join(job.requirements)} {' '.join(job.responsibilities)}"
+        
+        try:
+            vectors = self.tfidf.fit_transform([job_text, resume_text])
+            similarity = cosine_similarity(vectors[0:1], vectors[1:2])[0][0]
+            return min(similarity * 100, 100)
+        except:
+            return 50.0
+    
+    def _calculate_education_match(self, education: List[str], requirements: List[str]) -> float:
+        """Calculate education match score"""
+        req_text = ' '.join(requirements).lower()
+        education_keywords = ['bachelor', 'master', 'phd', 'degree', 'diploma', 'certification']
+        
+        required_education = []
+        for keyword in education_keywords:
+            if keyword in req_text:
+                required_education.append(keyword)
+        
+        if not required_education:
+            return 100.0
+        
+        education_text = ' '.join(education).lower()
+        matched = sum(1 for req in required_education if req in education_text)
+        
+        return (matched / len(required_education)) * 100 if required_education else 100
+    
+    def _generate_feedback(self, scores: Dict[str, float], entities: Dict, job) -> Dict[str, Any]:
+        """Generate detailed feedback for the application"""
+        feedback = {
+            'strengths': [],
+            'weaknesses': [],
+            'suggestions': []
+        }
+        
+        # Analyze scores
+        for score_type, score in scores.items():
+            if score >= 80:
+                feedback['strengths'].append(f"Strong {score_type.replace('_', ' ')}: {score:.1f}%")
+            elif score < 60:
+                feedback['weaknesses'].append(f"Low {score_type.replace('_', ' ')}: {score:.1f}%")
+        
+        # Skill analysis
+        missing_skills = set(job.skills_required) - set(entities['skills'])
+        if missing_skills:
+            feedback['suggestions'].append(f"Consider highlighting these skills if you have them: {', '.join(list(missing_skills)[:3])}")
+        
+        return feedback
+    
+    def _extract_with_ai(self, resume_text: str, entities: Dict) -> Dict:
+        """Use OpenAI to extract better information"""
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "Extract skills, education, experience, and certifications from the resume. Return as JSON."},
+                    {"role": "user", "content": resume_text[:3000]}  # Limit tokens
+                ],
+                max_tokens=500
+            )
+            
+            ai_entities = json.loads(response.choices[0].message.content)
+            # Merge AI results with existing entities
+            for key in entities:
+                if key in ai_entities and ai_entities[key]:
+                    entities[key] = ai_entities[key]
+            
+        except Exception as e:
+            print(f"AI extraction failed: {e}")
+        
+        return entities
+    
+    def _get_skill_keywords(self) -> List[str]:
+        """Get list of common skill keywords"""
+        return [
+            'Python', 'Java', 'JavaScript', 'C++', 'C#', 'Ruby', 'PHP', 'Swift', 'Kotlin',
+            'React', 'Angular', 'Vue', 'Django', 'Flask', 'Spring', 'Node.js', 'Express',
+            'SQL', 'NoSQL', 'MongoDB', 'PostgreSQL', 'MySQL', 'Redis', 'Elasticsearch',
+            'AWS', 'Azure', 'GCP', 'Docker', 'Kubernetes', 'CI/CD', 'Jenkins', 'Git',
+            'Machine Learning', 'Deep Learning', 'TensorFlow', 'PyTorch', 'Scikit-learn',
+            'Data Analysis', 'Data Science', 'Pandas', 'NumPy', 'Tableau', 'Power BI',
+            'Agile', 'Scrum', 'Project Management', 'Leadership', 'Communication'
+        ]
+
+class ApplicationFilterService:
+    """Service for filtering and ranking applications"""
+    
+    def filter_applications(self, queryset, filters: Dict[str, Any]):
+        """Apply filters to application queryset"""
+        
+        if 'min_score' in filters:
+            queryset = queryset.filter(ats_score__gte=filters['min_score'])
+        
+        if 'max_score' in filters:
+            queryset = queryset.filter(ats_score__lte=filters['max_score'])
+        
+        if 'skills' in filters:
+            # Filter by required skills
+            for skill in filters['skills']:
+                queryset = queryset.filter(
+                    candidate__profile__skills__contains=[skill]
+                )
+        
+        if 'experience_min' in filters:
+            queryset = queryset.filter(
+                candidate__profile__experience_years__gte=filters['experience_min']
+            )
+        
+        if 'status' in filters:
+            queryset = queryset.filter(status__in=filters['status'])
+        
+        return queryset
+    
+    def rank_applications(self, applications, criteria: str = 'ats_score'):
+        """Rank applications based on criteria"""
+        ranking_functions = {
+            'ats_score': lambda app: app.ats_score or 0,
+            'experience': lambda app: app.candidate.profile.experience_years,
+            'skill_match': lambda app: app.skill_match_score or 0,
+            'recent': lambda app: app.submitted_at
+        }
+        
+        if criteria in ranking_functions:
+            return sorted(applications, key=ranking_functions[criteria], reverse=True)
+        
+        return applications
+```
+
+## 7. Interview Management (apps/interviews/models.py)
+```python
+from django.db import models
+from django.contrib.auth import get_user_model
+import uuid
+
+User = get_user_model()
+
+class Interview(models.Model):
+    TYPE_CHOICES = [
+        ('phone_screening', 'Phone Screening'),
+        ('technical', 'Technical Interview'),
+        ('behavioral', 'Behavioral Interview'),
+        ('system_design', 'System Design'),
+        ('cultural_fit', 'Cultural Fit'),
+        ('final', 'Final Interview'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('scheduled', 'Scheduled'),
+        ('in_progress', 'In Progress'),
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled'),
+        ('rescheduled', 'Rescheduled'),
+        ('no_show', 'No Show'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    application = models.ForeignKey('applications.Application', on_delete=models.CASCADE, related_name='interviews')
+    type = models.CharField(max_length=30, choices=TYPE_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='scheduled')
+    
+    # Schedule
+    scheduled_at = models.DateTimeField()
+    duration_minutes = models.IntegerField(default=60)
+    meeting_link = models.URLField(blank=True)
+    location = models.CharField(max_length=200, blank=True)
+    
+    # Participants
+    interviewers = models.ManyToManyField(User, related_name='interviews_conducted')
+    
+    # Feedback
+    feedback = models.JSONField(default=dict)
+    rating = models.IntegerField(null=True, blank=True)
+    recommendation = models.CharField(max_length=20, blank=True)
+    notes = models.TextField(blank=True)
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        db_table = 'interviews'
+        ordering = ['scheduled_at']
+
+class InterviewFeedback(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    interview = models.ForeignKey(Interview, on_delete=models.CASCADE, related_name='feedback_entries')
+    interviewer = models.ForeignKey(User, on_delete=models.CASCADE)
+    
+    # Ratings
+    technical_skills = models.IntegerField(null=True, blank=True)
+    communication = models.IntegerField(null=True, blank=True)
+    problem_solving = models.IntegerField(null=True, blank=True)
+    cultural_fit = models.IntegerField(null=True, blank=True)
+    overall_rating = models.IntegerField()
+    
+    # Feedback
+    strengths = models.TextField(blank=True)
+    weaknesses = models.TextField(blank=True)
+    comments = models.TextField(blank=True)
+    recommendation = models.CharField(max_length=20, choices=[
+        ('strong_yes', 'Strong Yes'),
+        ('yes', 'Yes'),
+        ('maybe', 'Maybe'),
+        ('no', 'No'),
+        ('strong_no', 'Strong No'),
+    ])
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'interview_feedback'
+        unique_together = ['interview', 'interviewer']
+
+## 8. Email Notification Service (apps/notifications/services.py)
+```python
+from django.core.mail import send_mail, EmailMultiAlternatives
+from django.template.loader import render_to_string
+from django.utils.html import strip_tags
+from django.conf import settings
+from celery import shared_task
+import logging
+
+logger = logging.getLogger(__name__)
+
+class EmailService:
+    """Service for sending email notifications"""
+    
+    @staticmethod
+    @shared_task
+    def send_application_confirmation(application_id):
+        """Send confirmation email when application is submitted"""
+        from apps.applications.models import Application
+        
+        try:
+            application = Application.objects.get(id=application_id)
+            
+            context = {
+                'candidate_name': application.candidate.get_full_name(),
+                'job_title': application.job.title,
+                'company_name': 'Your Company',
+                'application_id': application.id,
+                'status_link': f"{settings.FRONTEND_URL}/applications/{application.id}"
+            }
+            
+            html_content = render_to_string('emails/application_confirmation.html', context)
+            text_content = strip_tags(html_content)
+            
+            email = EmailMultiAlternatives(
+                subject=f'Application Received - {application.job.title}',
+                body=text_content,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[application.candidate.email]
+            )
+            email.attach_alternative(html_content, "text/html")
+            email.send()
+            
+            logger.info(f"Confirmation email sent for application {application_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to send confirmation email: {str(e)}")
+            return False
+    
+    @staticmethod
+    @shared_task
+    def send_status_update(application_id, old_status, new_status):
+        """Send email when application status changes"""
+        from apps.applications.models import Application
+        
+        try:
+            application = Application.objects.get(id=application_id)
+            
+            status_messages = {
+                'shortlisted': 'Great news! Your application has been shortlisted.',
+                'interview_scheduled': 'Your interview has been scheduled.',
+                'rejected': 'Update on your application status.',
+                'offer_extended': 'Congratulations! You have received an offer.',
+            }
+            
+            context = {
+                'candidate_name': application.candidate.get_full_name(),
+                'job_title': application.job.title,
+                'new_status': new_status,
+                'message': status_messages.get(new_status, 'Your application status has been updated.'),
+                'status_link': f"{settings.FRONTEND_URL}/applications/{application.id}"
+            }
+            
+            html_content = render_to_string('emails/status_update.html', context)
+            text_content = strip_tags(html_content)
+            
+            email = EmailMultiAlternatives(
+                subject=f'Application Update - {application.job.title}',
+                body=text_content,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[application.candidate.email]
+            )
+            email.attach_alternative(html_content, "text/html")
+            email.send()
+            
+            logger.info(f"Status update email sent for application {application_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to send status update email: {str(e)}")
+            return False
+    
+    @staticmethod
+    @shared_task
+    def send_interview_invitation(interview_id):
+        """Send interview invitation email"""
+        from apps.interviews.models import Interview
+        
+        try:
+            interview = Interview.objects.get(id=interview_id)
+            
+            context = {
+                'candidate_name': interview.application.candidate.get_full_name(),
+                'job_title': interview.application.job.title,
+                'interview_type': interview.get_type_display(),
+                'scheduled_at': interview.scheduled_at,
+                'duration': interview.duration_minutes,
+                'meeting_link': interview.meeting_link,
+                'location': interview.location,
+                'interviewers': [i.get_full_name() for i in interview.interviewers.all()]
+            }
+            
+            html_content = render_to_string('emails/interview_invitation.html', context)
+            text_content = strip_tags(html_content)
+            
+            # Send to candidate
+            candidate_email = EmailMultiAlternatives(
+                subject=f'Interview Invitation - {interview.application.job.title}',
+                body=text_content,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[interview.application.candidate.email]
+            )
+            candidate_email.attach_alternative(html_content, "text/html")
+            candidate_email.send()
+            
+            # Send to interviewers
+            for interviewer in interview.interviewers.all():
+                interviewer_context = context.copy()
+                interviewer_context['is_interviewer'] = True
+                interviewer_context['interviewer_name'] = interviewer.get_full_name()
+                
+                html_content = render_to_string('emails/interview_invitation.html', interviewer_context)
+                text_content = strip_tags(html_content)
+                
+                interviewer_email = EmailMultiAlternatives(
+                    subject=f'Interview Scheduled - {interview.application.candidate.get_full_name()}',
+                    body=text_content,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    to=[interviewer.email]
+                )
+                interviewer_email.attach_alternative(html_content, "text/html")
+                interviewer_email.send()
+            
+            logger.info(f"Interview invitation sent for interview {interview_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to send interview invitation: {str(e)}")
+            return False
+    
+    @staticmethod
+    @shared_task
+    def send_offer_letter(application_id, offer_details):
+        """Send offer letter email"""
+        from apps.applications.models import Application
+        
+        try:
+            application = Application.objects.get(id=application_id)
+            
+            context = {
+                'candidate_name': application.candidate.get_full_name(),
+                'job_title': application.job.title,
+                'offer_details': offer_details,
+                'accept_link': f"{settings.FRONTEND_URL}/offers/{application.id}/accept",
+                'decline_link': f"{settings.FRONTEND_URL}/offers/{application.id}/decline"
+            }
+            
+            html_content = render_to_string('emails/offer_letter.html', context)
+            text_content = strip_tags(html_content)
+            
+            email = EmailMultiAlternatives(
+                subject=f'Job Offer - {application.job.title}',
+                body=text_content,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[application.candidate.email]
+            )
+            email.attach_alternative(html_content, "text/html")
+            
+            # Attach PDF offer letter if available
+            if 'pdf_path' in offer_details:
+                email.attach_file(offer_details['pdf_path'])
+            
+            email.send()
+            
+            logger.info(f"Offer letter sent for application {application_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to send offer letter: {str(e)}")
+            return False
+
+## 9. API Views and Serializers (apps/applications/views.py)
+```python
+from rest_framework import viewsets, status, filters
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from django_filters.rest_framework import DjangoFilterBackend
+from django.db import transaction
+from django.utils import timezone
+from .models import Application, ApplicationStatusHistory
+from .serializers import ApplicationSerializer, ApplicationDetailSerializer
+from apps.ats.services import ATSService, ApplicationFilterService
+from apps.notifications.services import EmailService
+from utils.permissions import IsRecruiterOrOwner, IsRecruiter
+
+class ApplicationViewSet(viewsets.ModelViewSet):
+    queryset = Application.objects.all()
+    serializer_class = ApplicationSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['status', 'job', 'candidate']
+    search_fields = ['candidate__first_name', 'candidate__last_name', 'candidate__email']
+    ordering_fields = ['created_at', 'ats_score', 'submitted_at']
+    
+    def get_permissions(self):
+        if self.action in ['create']:
+            return [IsAuthenticated()]
+        elif self.action in ['update', 'partial_update', 'destroy']:
+            return [IsRecruiterOrOwner()]
+        else:
+            return [IsAuthenticated()]
+    
+    def get_serializer_class(self):
+        if self.action in ['retrieve']:
+            return ApplicationDetailSerializer
+        return ApplicationSerializer
+    
+    def get_queryset(self):
+        user = self.request.user
+        queryset = super().get_queryset()
+        
+        if user.role == 'candidate':
+            return queryset.filter(candidate=user)
+        elif user.role in ['recruiter', 'hiring_manager']:
+            return queryset
+        else:
+            return queryset.none()
+    
+    @transaction.atomic
+    def create(self, request):
+        """Create new application with ATS scoring"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        # Set candidate
+        serializer.validated_data['candidate'] = request.user
+        
+        # Save application
+        application = serializer.save()
+        
+        # Calculate ATS score
+        ats_service = ATSService()
+        ats_result = ats_service.calculate_ats_score(application, application.job)
+        
+        # Update application with scores
+        application.ats_score = ats_result['total_score']
+        application.skill_match_score = ats_result['scores']['skill_match']
+        application.experience_match_score = ats_result['scores']['experience_match']
+        application.education_match_score = ats_result['scores']['education_match']
+        application.keyword_match_score = ats_result['scores']['keyword_match']
+        application.ats_feedback = ats_result['feedback']
+        
+        # Auto-process based on thresholds
+        if application.ats_score < application.job.auto_reject_threshold:
+            application.status = 'rejected'
+            application.rejection_reason = 'ATS score below threshold'
+        elif application.ats_score >= application.job.auto_shortlist_threshold:
+            application.status = 'shortlisted'
+        else:
+            application.status = 'under_review'
+        
+        application.submitted_at = timezone.now()
+        application.save()
+        
+        # Send confirmation email
+        EmailService.send_application_confirmation.delay(application.id)
+        
+        return Response(
+            ApplicationDetailSerializer(application).data,
+            status=status.HTTP_201_CREATED
+        )
+    
+    @action(detail=True, methods=['post'], permission_classes=[IsRecruiter])
+    def update_status(self, request, pk=None):
+        """Update application status with history tracking"""
+        application = self.get_object()
+        new_status = request.data.get('status')
+        reason = request.data.get('reason', '')
+        
+        if new_status not in dict(Application.STATUS_CHOICES):
+            return Response(
+                {'error': 'Invalid status'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        old_status = application.status
+        
+        # Create status history
+        ApplicationStatusHistory.objects.create(
+            application=application,
+            from_status=old_status,
+            to_status=new_status,
+            changed_by=request.user,
+            reason=reason
+        )
+        
+        # Update application
+        application.status = new_status
+        if new_status == 'rejected':
+            application.rejection_reason = reason
+        application.save()
+        
+        # Send status update email
+        EmailService.send_status_update.delay(application.id, old_status, new_status)
+        
+        return Response({'status': 'updated'})
+    
+    @action(detail=False, methods=['post'], permission_classes=[IsRecruiter])
+    def bulk_filter(self, request):
+        """Bulk filter applications with advanced criteria"""
+        filter_service = ApplicationFilterService()
+        
+        queryset = self.get_queryset()
+        filters = request.data.get('filters', {})
+        ranking = request.data.get('ranking', 'ats_score')
+        
+        # Apply filters
+        filtered_qs = filter_service.filter_applications(queryset, filters)
+        
+        # Rank applications
+        applications = list(filtered_qs)
+        ranked_applications = filter_service.rank_applications(applications, ranking)
+        
+        serializer = ApplicationSerializer(ranked_applications, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def ats_report(self, request, pk=None):
+        """Get detailed ATS report for an application"""
+        application = self.get_object()
+        
+        return Response({
+            'ats_score': application.ats_score,
+            'skill_match_score': application.skill_match_score,
+            'experience_match_score': application.experience_match_score,
+            'education_match_score': application.education_match_score,
+            'keyword_match_score': application.keyword_match_score,
+            'feedback': application.ats_feedback,
+        })
+
+## 10. Celery Configuration (ai_hiring/celery.py)
+```python
+import os
+from celery import Celery
+from celery.schedules import crontab
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'ai_hiring.settings')
+
+app = Celery('ai_hiring')
+app.config_from_object('django.conf:settings', namespace='CELERY')
+app.autodiscover_tasks()
+
+# Periodic tasks
+app.conf.beat_schedule = {
+    'send-daily-recruiter-summary': {
+        'task': 'apps.analytics.tasks.send_daily_summary',
+        'schedule': crontab(hour=9, minute=0),
+    },
+    'auto-reject-expired-applications': {
+        'task': 'apps.applications.tasks.auto_reject_expired',
+        'schedule': crontab(hour=0, minute=0),
+    },
+    'send-interview-reminders': {
+        'task': 'apps.interviews.tasks.send_reminders',
+        'schedule': crontab(minute='*/30'),
+    },
+}
+
+## 11. RBAC Permissions (utils/permissions.py)
+```python
+from rest_framework import permissions
+
+class IsAdmin(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role == 'admin'
+
+class IsRecruiter(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role in ['recruiter', 'admin']
+
+class IsHiringManager(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role in ['hiring_manager', 'recruiter', 'admin']
+
+class IsInterviewer(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role in ['interviewer', 'hiring_manager', 'recruiter', 'admin']
+
+class IsCandidate(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role == 'candidate'
+
+class IsRecruiterOrOwner(permissions.BasePermission):
+    def has_object_permission(self, request, view, obj):
+        if request.user.role in ['recruiter', 'admin']:
+            return True
+        if hasattr(obj, 'candidate'):
+            return obj.candidate == request.user
+        if hasattr(obj, 'user'):
+            return obj.user == request.user
+        return False
+
+class RoleBasedPermission(permissions.BasePermission):
+    """Dynamic role-based permission"""
+    role_permissions = {
+        'admin': ['all'],
+        'recruiter': ['view_all', 'edit_jobs', 'manage_applications', 'schedule_interviews'],
+        'hiring_manager': ['view_department', 'approve_offers', 'view_reports'],
+        'interviewer': ['view_assigned', 'submit_feedback'],
+        'candidate': ['apply_jobs', 'view_own_applications']
+    }
+    
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated:
+            return False
+        
+        user_role = request.user.role
+        required_permission = getattr(view, 'required_permission', None)
+        
+        if not required_permission:
+            return True
+        
+        if user_role == 'admin':
+            return True
+        
+        user_permissions = self.role_permissions.get(user_role, [])
+        return required_permission in user_permissions
+
+## 12. Main URLs Configuration (ai_hiring/urls.py)
+```python
+from django.contrib import admin
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from drf_yasg.views import get_schema_view
+from drf_yasg import openapi
+from rest_framework import permissions
+
+# Swagger configuration
+schema_view = get_schema_view(
+    openapi.Info(
+        title="AI Hiring Platform API",
+        default_version='v1',
+        description="Complete AI-powered hiring platform API",
+        terms_of_service="https://www.yourcompany.com/terms/",
+        contact=openapi.Contact(email="contact@yourcompany.com"),
+        license=openapi.License(name="BSD License"),
+    ),
+    public=True,
+    permission_classes=[permissions.AllowAny],
+)
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    
+    # Authentication
+    path('api/auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/auth/', include('apps.authentication.urls')),
+    
+    # API endpoints
+    path('api/users/', include('apps.users.urls')),
+    path('api/jobs/', include('apps.jobs.urls')),
+    path('api/applications/', include('apps.applications.urls')),
+    path('api/interviews/', include('apps.interviews.urls')),
+    path('api/analytics/', include('apps.analytics.urls')),
+    
+    # Documentation
+    path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
+    path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
+]
+
+## 13. Docker Configuration (docker-compose.yml)
+```yaml
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: ai_hiring_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: your_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+  
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+  
+  web:
+    build: .
+    command: gunicorn ai_hiring.wsgi:application --bind 0.0.0.0:8000
+    volumes:
+      - .:/code
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DEBUG=False
+      - DATABASE_URL=postgresql://postgres:your_password@db:5432/ai_hiring_db
+      - REDIS_URL=redis://redis:6379/0
+  
+  celery:
+    build: .
+    command: celery -A ai_hiring worker -l info
+    volumes:
+      - .:/code
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DATABASE_URL=postgresql://postgres:your_password@db:5432/ai_hiring_db
+      - REDIS_URL=redis://redis:6379/0
+  
+  celery-beat:
+    build: .
+    command: celery -A ai_hiring beat -l info
+    volumes:
+      - .:/code
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DATABASE_URL=postgresql://postgres:your_password@db:5432/ai_hiring_db
+      - REDIS_URL=redis://redis:6379/0
+
+volumes:
+  postgres_data:
+
+## 14. Dockerfile
+```dockerfile
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /code
+
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt /code/
+RUN pip install --upgrade pip
+RUN pip install -r requirements.txt
+
+COPY . /code/
+
+RUN python manage.py collectstatic --noinput
+
+CMD ["gunicorn", "ai_hiring.wsgi:application", "--bind", "0.0.0.0:8000"]
+```
