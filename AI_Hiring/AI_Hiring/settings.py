@@ -48,19 +48,74 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-ROOT_URLCONF = 'ai_hiring.urls'
+ROOT_URLCONF = 'AI_Hiring.urls'
+
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [],
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.debug',
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
+    },
+]
+
+WSGI_APPLICATION = 'AI_Hiring.wsgi.application'
 
 # Database
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME', default='ai_hiring_db'),
-        'USER': config('DB_USER', default='postgres'),
-        'PASSWORD': config('DB_PASSWORD'),
-        'HOST': config('DB_HOST', default='localhost'),
-        'PORT': config('DB_PORT', default='5432'),
+        'ENGINE': 'django.db.backends.postgresql',  
+        'NAME': 'hiring_ai',                     
+        'USER': 'Yuvansh',                     
+        'PASSWORD': 'Yuvi@2005',             
+        'HOST': 'localhost',                        
+        'PORT': '5432',                         
     }
 }
+
+
+# Password validation
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
+]
+
+# Internationalization
+LANGUAGE_CODE = 'en-us'
+TIME_ZONE = 'UTC'
+USE_I18N = True
+USE_TZ = True
+
+# Static files (CSS, JavaScript, Images)
+STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
+# Media files
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# Default primary key field type
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Custom User Model
+AUTH_USER_MODEL = 'users.User'
 
 # JWT Configuration
 SIMPLE_JWT = {
@@ -122,57 +177,3 @@ AWS_DEFAULT_ACL = None
 
 # AI Configuration
 OPENAI_API_KEY = config('OPENAI_API_KEY', default='')
-```
-
-## 3. User & Authentication Models (apps/users/models.py)
-```python
-from django.contrib.auth.models import AbstractUser
-from django.db import models
-import uuid
-
-class User(AbstractUser):
-    ROLE_CHOICES = [
-        ('admin', 'Admin'),
-        ('recruiter', 'Recruiter'),
-        ('hiring_manager', 'Hiring Manager'),
-        ('interviewer', 'Interviewer'),
-        ('candidate', 'Candidate'),
-    ]
-    
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    email = models.EmailField(unique=True)
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='candidate')
-    department = models.CharField(max_length=100, blank=True)
-    phone = models.CharField(max_length=20, blank=True)
-    is_verified = models.BooleanField(default=False)
-    verification_token = models.CharField(max_length=255, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    
-    USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = ['username', 'first_name', 'last_name']
-    
-    class Meta:
-        db_table = 'users'
-        indexes = [
-            models.Index(fields=['email']),
-            models.Index(fields=['role']),
-        ]
-
-class UserProfile(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
-    bio = models.TextField(blank=True)
-    resume = models.FileField(upload_to='resumes/', blank=True, null=True)
-    linkedin_url = models.URLField(blank=True)
-    github_url = models.URLField(blank=True)
-    portfolio_url = models.URLField(blank=True)
-    skills = models.JSONField(default=list)
-    experience_years = models.IntegerField(default=0)
-    education = models.JSONField(default=list)
-    certifications = models.JSONField(default=list)
-    preferred_locations = models.JSONField(default=list)
-    expected_salary = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    notice_period_days = models.IntegerField(default=0)
-    
-    class Meta:
-        db_table = 'user_profiles'
