@@ -9,3 +9,4 @@ router.register(r'', ApplicationViewSet)
 urlpatterns = [
     path('', include(router.urls)),
 ]
+#check
