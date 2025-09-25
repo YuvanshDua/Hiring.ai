@@ -1,4 +1,4 @@
-## 4. Jobs Models (apps/jobs/models.py)
+# This should replace your existing apps/jobs/models.py
 
 from django.db import models
 from django.contrib.auth import get_user_model
@@ -10,6 +10,10 @@ class Department(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return self.name
     
     class Meta:
         db_table = 'departments'
@@ -41,7 +45,7 @@ class Job(models.Model):
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=200)
-    department = models.ForeignKey(Department, on_delete=models.SET_NULL, null=True)
+    department = models.ForeignKey(Department, on_delete=models.SET_NULL, null=True, blank=True)
     description = models.TextField()
     requirements = models.JSONField(default=list)
     responsibilities = models.JSONField(default=list)
@@ -68,6 +72,9 @@ class Job(models.Model):
     auto_reject_threshold = models.IntegerField(default=40)
     auto_shortlist_threshold = models.IntegerField(default=70)
     screening_questions = models.JSONField(default=list)
+    
+    def __str__(self):
+        return self.title
     
     class Meta:
         db_table = 'jobs'
