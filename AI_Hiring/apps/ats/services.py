@@ -3,45 +3,83 @@ import json
 from typing import Dict, List, Any
 import PyPDF2
 import docx
-import nltk
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-import spacy
-import openai
 from django.conf import settings
+import logging
 
-nltk.download('punkt')
-nltk.download('stopwords')
-nlp = spacy.load('en_core_web_sm')
+logger = logging.getLogger(__name__)
+
+# Try to import optional dependencies
+try:
+    import nltk
+    nltk.download('punkt', quiet=True)
+    nltk.download('stopwords', quiet=True)
+    NLTK_AVAILABLE = True
+except ImportError:
+    NLTK_AVAILABLE = False
+    logger.warning("NLTK not available. Some features will be disabled.")
+
+try:
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
+    logger.warning("Scikit-learn not available. Some features will be disabled.")
+
+try:
+    import spacy
+    nlp = spacy.load('en_core_web_sm')
+    SPACY_AVAILABLE = True
+except (ImportError, OSError):
+    SPACY_AVAILABLE = False
+    nlp = None
+    logger.warning("spaCy not available. Some features will be disabled.")
+
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+    logger.warning("OpenAI not available. Some features will be disabled.")
 
 class ATSService:
     def __init__(self):
-        self.openai_client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
-        self.tfidf = TfidfVectorizer(stop_words='english')
+        if OPENAI_AVAILABLE and hasattr(settings, 'OPENAI_API_KEY') and settings.OPENAI_API_KEY:
+            self.openai_client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+        else:
+            self.openai_client = None
+        
+        if SKLEARN_AVAILABLE:
+            self.tfidf = TfidfVectorizer(stop_words='english')
+        else:
+            self.tfidf = None
     
     def extract_text_from_resume(self, resume_file) -> str:
         """Extract text from PDF or DOCX resume"""
         text = ""
         
-        if resume_file.name.endswith('.pdf'):
-            pdf_reader = PyPDF2.PdfReader(resume_file)
-            for page in pdf_reader.pages:
-                text += page.extract_text()
+        try:
+            if resume_file.name.endswith('.pdf'):
+                pdf_reader = PyPDF2.PdfReader(resume_file)
+                for page in pdf_reader.pages:
+                    text += page.extract_text()
+            
+            elif resume_file.name.endswith('.docx'):
+                doc = docx.Document(resume_file)
+                for paragraph in doc.paragraphs:
+                    text += paragraph.text + '\n'
+            
+            else:
+                text = resume_file.read().decode('utf-8', errors='ignore')
         
-        elif resume_file.name.endswith('.docx'):
-            doc = docx.Document(resume_file)
-            for paragraph in doc.paragraphs:
-                text += paragraph.text + '\n'
-        
-        else:
-            text = resume_file.read().decode('utf-8', errors='ignore')
+        except Exception as e:
+            logger.error(f"Error extracting text from resume: {e}")
+            text = ""
         
         return text
     
     def extract_resume_entities(self, resume_text: str) -> Dict[str, Any]:
-        """Extract entities from resume using NLP"""
-        doc = nlp(resume_text)
-        
+        """Extract entities from resume using available NLP tools"""
         entities = {
             'skills': [],
             'education': [],
@@ -68,43 +106,66 @@ class ATSService:
             if skill.lower() in resume_text.lower():
                 entities['skills'].append(skill)
         
-        # Use OpenAI for better extraction
-        if settings.OPENAI_API_KEY:
-            entities = self._extract_with_ai(resume_text, entities)
+        # Use spaCy if available
+        if SPACY_AVAILABLE and nlp:
+            try:
+                doc = nlp(resume_text[:1000])  # Limit text length
+                for ent in doc.ents:
+                    if ent.label_ in ["ORG", "PERSON"]:
+                        entities['experience'].append(ent.text)
+            except Exception as e:
+                logger.warning(f"spaCy processing failed: {e}")
+        
+        # Use OpenAI for better extraction if available
+        if self.openai_client:
+            try:
+                entities = self._extract_with_ai(resume_text, entities)
+            except Exception as e:
+                logger.warning(f"AI extraction failed: {e}")
         
         return entities
     
     def calculate_ats_score(self, application, job) -> Dict[str, Any]:
         """Calculate comprehensive ATS score"""
-        resume_text = self.extract_text_from_resume(application.resume)
-        resume_entities = self.extract_resume_entities(resume_text)
+        try:
+            resume_text = self.extract_text_from_resume(application.resume)
+            resume_entities = self.extract_resume_entities(resume_text)
+            
+            scores = {
+                'skill_match': self._calculate_skill_match(resume_entities['skills'], job.skills_required, job.skills_preferred),
+                'experience_match': self._calculate_experience_match(resume_text, job),
+                'education_match': self._calculate_education_match(resume_entities['education'], job.requirements),
+                'keyword_match': self._calculate_keyword_match(resume_text, job)
+            }
+            
+            # Calculate weighted average
+            weights = {
+                'skill_match': 0.35,
+                'experience_match': 0.30,
+                'education_match': 0.20,
+                'keyword_match': 0.15
+            }
+            
+            total_score = sum(scores[key] * weights[key] for key in scores)
+            
+            # Generate feedback
+            feedback = self._generate_feedback(scores, resume_entities, job)
+            
+            return {
+                'total_score': round(total_score, 2),
+                'scores': scores,
+                'feedback': feedback,
+                'entities': resume_entities
+            }
         
-        scores = {
-            'skill_match': self._calculate_skill_match(resume_entities['skills'], job.skills_required, job.skills_preferred),
-            'experience_match': self._calculate_experience_match(resume_text, job),
-            'education_match': self._calculate_education_match(resume_entities['education'], job.requirements),
-            'keyword_match': self._calculate_keyword_match(resume_text, job)
-        }
-        
-        # Calculate weighted average
-        weights = {
-            'skill_match': 0.35,
-            'experience_match': 0.30,
-            'education_match': 0.20,
-            'keyword_match': 0.15
-        }
-        
-        total_score = sum(scores[key] * weights[key] for key in scores)
-        
-        # Generate feedback
-        feedback = self._generate_feedback(scores, resume_entities, job)
-        
-        return {
-            'total_score': round(total_score, 2),
-            'scores': scores,
-            'feedback': feedback,
-            'entities': resume_entities
-        }
+        except Exception as e:
+            logger.error(f"Error calculating ATS score: {e}")
+            return {
+                'total_score': 50.0,
+                'scores': {'skill_match': 50, 'experience_match': 50, 'education_match': 50, 'keyword_match': 50},
+                'feedback': {'error': 'Could not process resume'},
+                'entities': {}
+            }
     
     def _calculate_skill_match(self, candidate_skills: List[str], required_skills: List[str], preferred_skills: List[str]) -> float:
         """Calculate skill match score"""
@@ -142,14 +203,21 @@ class ATSService:
             return 100.0
     
     def _calculate_keyword_match(self, resume_text: str, job) -> float:
-        """Calculate keyword match using TF-IDF"""
-        job_text = f"{job.title} {job.description} {' '.join(job.requirements)} {' '.join(job.responsibilities)}"
+        """Calculate keyword match using TF-IDF if available"""
+        if not SKLEARN_AVAILABLE or not self.tfidf:
+            # Simple keyword matching fallback
+            job_keywords = [job.title.lower()] + [req.lower() for req in job.requirements[:5]]
+            resume_lower = resume_text.lower()
+            matches = sum(1 for keyword in job_keywords if keyword in resume_lower)
+            return min((matches / len(job_keywords)) * 100, 100) if job_keywords else 50
         
         try:
+            job_text = f"{job.title} {job.description} {' '.join(job.requirements)} {' '.join(job.responsibilities)}"
             vectors = self.tfidf.fit_transform([job_text, resume_text])
             similarity = cosine_similarity(vectors[0:1], vectors[1:2])[0][0]
             return min(similarity * 100, 100)
-        except:
+        except Exception as e:
+            logger.warning(f"TF-IDF calculation failed: {e}")
             return 50.0
     
     def _calculate_education_match(self, education: List[str], requirements: List[str]) -> float:
@@ -186,7 +254,10 @@ class ATSService:
                 feedback['weaknesses'].append(f"Low {score_type.replace('_', ' ')}: {score:.1f}%")
         
         # Skill analysis
-        missing_skills = set(job.skills_required) - set(entities['skills'])
+        candidate_skills = set([skill.lower() for skill in entities.get('skills', [])])
+        required_skills = set([skill.lower() for skill in job.skills_required])
+        missing_skills = required_skills - candidate_skills
+        
         if missing_skills:
             feedback['suggestions'].append(f"Consider highlighting these skills if you have them: {', '.join(list(missing_skills)[:3])}")
         
@@ -211,7 +282,7 @@ class ATSService:
                     entities[key] = ai_entities[key]
             
         except Exception as e:
-            print(f"AI extraction failed: {e}")
+            logger.warning(f"AI extraction failed: {e}")
         
         return entities
     
@@ -243,12 +314,12 @@ class ApplicationFilterService:
             # Filter by required skills
             for skill in filters['skills']:
                 queryset = queryset.filter(
-                    candidate__profile__skills__contains=[skill]
+                    candidate__candidate_profile__skills__contains=[skill]
                 )
         
         if 'experience_min' in filters:
             queryset = queryset.filter(
-                candidate__profile__experience_years__gte=filters['experience_min']
+                candidate__candidate_profile__experience_years__gte=filters['experience_min']
             )
         
         if 'status' in filters:
@@ -260,7 +331,7 @@ class ApplicationFilterService:
         """Rank applications based on criteria"""
         ranking_functions = {
             'ats_score': lambda app: app.ats_score or 0,
-            'experience': lambda app: app.candidate.profile.experience_years,
+            'experience': lambda app: getattr(app.candidate.candidate_profile, 'experience_years', 0) if hasattr(app.candidate, 'candidate_profile') else 0,
             'skill_match': lambda app: app.skill_match_score or 0,
             'recent': lambda app: app.submitted_at
         }
