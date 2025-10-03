@@ -74,7 +74,7 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',  
         'NAME': 'hiring_ai',                     
-        'USER': 'Yuvansh',                     
+        'USER': 'yuvansh',                     
         'PASSWORD': 'Yuvi@2005',             
         'HOST': 'localhost',                        
         'PORT': '5432',                         
